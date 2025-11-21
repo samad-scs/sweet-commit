@@ -138,7 +138,7 @@ async function getRepoInfo() {
     throw new Error('Unable to parse GitHub remote URL');
   }
 
-  const owner = match[1];
+  const owner = match[1]?.replace('github.com/', '/');
   const repo = match[2];
 
   return { owner, repo };
@@ -148,6 +148,7 @@ export async function mergeIntoDev() {
   const branch = (await execGit('git rev-parse --abbrev-ref HEAD')).trim();
   p.note(`Merging ${branch} → dev`, 'Auto-merge');
   const { owner, repo } = await getRepoInfo();
+  p.note(`owner ${owner} repo ${repo}`, 'Auto-merge');
 
   try {
     await execPromise(`gh api \
