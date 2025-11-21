@@ -22,12 +22,60 @@ function parseArgs() {
   const flags = {
     addAndPush: false,
     yes: false,
+    toDev: false,
+    toStag: false,
   };
+
   for (const a of args) {
     if (a === '--add-and-push' || a === '--ap') flags.addAndPush = true;
     else if (a === '--yes' || a === '-y') flags.yes = true;
+    else if (a === '--to-dev') flags.toDev = true;
+    else if (a === '--to-stag') flags.toStag = true;
   }
   return flags;
+}
+
+async function mergeIntoDev() {
+  const branch = (await execGit('git rev-parse --abbrev-ref HEAD')).trim();
+  p.note(`Merging ${branch} → dev`, 'Auto-merge');
+  const repoUrl = (await execGit('git config --get remote.origin.url')).trim();
+  const [, owner, repo] = repoUrl.match(/[:/]([^/]+)\/(.+)\.git$/);
+
+  try {
+    await execPromise(`gh api \
+      -X POST \
+      repos/${owner}/${repo}/merges \
+      -f base=dev \
+      -f head=${branch}`);
+
+    p.note('Merged to dev successfully', 'Merge');
+  } catch (err) {
+    p.cancel(`Failed to merge into dev: ${err.message}`);
+    process.exit(1);
+  }
+}
+
+async function createDevToStagingPR(owner, repo) {
+  p.note('Creating PR from dev → staging', 'PR');
+
+  try {
+    const output = await execPromise(
+      `gh pr create \
+        --title "Sync dev → staging" \
+        --body "Automated merge by sweet-commit" \
+        --base staging \
+        --head dev \
+        --label jarvis \
+        --repo ${owner}/${repo} \
+        --json url`,
+    );
+
+    const { url } = JSON.parse(output.stdout);
+    p.note(`Pull Request Created:\n${url}`, 'PR URL');
+  } catch (err) {
+    p.cancel(`Failed to create PR: ${err.message}`);
+    process.exit(1);
+  }
 }
 
 async function execGit(command, options = {}) {
@@ -411,6 +459,11 @@ export async function main() {
 
   const flags = parseArgs();
 
+  if (flags.toDev || flags.toStag) {
+    flags.addAndPush = true;
+    flags.yes = true;
+  }
+
   if (flags.addAndPush) {
     p.note('Flag --add-and-push detected. Running: git add .', 'Auto-add');
     try {
@@ -419,6 +472,20 @@ export async function main() {
       p.cancel(`Failed to run 'git add .': ${err.message}`);
       process.exit(1);
     }
+  }
+
+  if (flags.toDev || flags.toStag) {
+    const repoUrl = (await execGit('git config --get remote.origin.url')).trim();
+    const [, owner, repo] = repoUrl.match(/[:/]([^/]+)\/(.+)\.git$/);
+
+    await mergeIntoDev(owner, repo);
+  }
+
+  if (flags.toStag) {
+    const repoUrl = (await execGit('git config --get remote.origin.url')).trim();
+    const [, owner, repo] = repoUrl.match(/[:/]([^/]+)\/(.+)\.git$/);
+
+    await createDevToStagingPR(owner, repo);
   }
 
   await checkStagedChanges();
