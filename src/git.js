@@ -205,12 +205,22 @@ export async function createDevToStagingPR() {
         --base staging \
         --head dev \
         --label 🤖JARVIS \
-        --repo ${owner}/${repo} \
-        --json url`,
+        --repo ${owner}/${repo}`,
     );
 
-    const { url } = JSON.parse(output.stdout);
-    p.note(`Pull Request Created:\n${url}`, 'PR URL');
+    const text = output.stdout.trim();
+
+    // Extract URL
+    const urlMatch = text.match(/https:\/\/github\.com\/[^\s]+/);
+    const prUrl = urlMatch ? urlMatch[0] : null;
+
+    if (!prUrl) {
+      p.note(text, 'Raw gh output');
+      throw new Error('Could not detect PR URL from gh output');
+    }
+
+    p.note(`Pull Request Created:\n${prUrl}`, 'PR URL');
+    return prUrl;
   } catch (err) {
     p.cancel(`Failed to create PR: ${err.message}`);
     process.exit(1);
