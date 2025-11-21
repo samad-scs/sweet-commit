@@ -65,7 +65,7 @@ async function createDevToStagingPR(owner, repo) {
         --body "Automated merge by sweet-commit" \
         --base staging \
         --head dev \
-        --label jarvis \
+        --label 🤖JARVIS \
         --repo ${owner}/${repo} \
         --json url`,
     );
