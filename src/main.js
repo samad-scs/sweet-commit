@@ -178,17 +178,11 @@ export async function main() {
     }
 
     if (flags.toDev || flags.toStag) {
-      const repoUrl = (await execGit('git config --get remote.origin.url')).trim();
-      const [, owner, repo] = repoUrl.match(/[:/]([^/]+)\/(.+)\.git$/);
-
-      await mergeIntoDev(owner, repo);
+      await mergeIntoDev();
     }
 
     if (flags.toStag) {
-      const repoUrl = (await execGit('git config --get remote.origin.url')).trim();
-      const [, owner, repo] = repoUrl.match(/[:/]([^/]+)\/(.+)\.git$/);
-
-      await createDevToStagingPR(owner, repo);
+      await createDevToStagingPR();
     }
 
     p.outro('Done!');

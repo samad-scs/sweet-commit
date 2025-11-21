@@ -144,18 +144,45 @@ async function getRepoInfo() {
   return { owner, repo };
 }
 
+async function createPRToDev(owner, repo, branch) {
+  try {
+    const output = await execPromise(
+      `gh pr create \
+        --repo ${owner}/${repo} \
+        --base dev \
+        --head ${branch} \
+        --title "Sync ${branch} → dev" \
+        --body "Automated merge by sweet-commit"`,
+    );
+
+    // gh prints PR URL like:
+    // https://github.com/owner/repo/pull/123
+    const match = output.stdout.trim().match(/pull\/(\d+)/);
+    const prNumber = match ? match[1] : null;
+
+    if (!prNumber) throw new Error('Unable to detect PR number');
+
+    return prNumber;
+  } catch (err) {
+    p.cancel(`Failed to create PR: ${err.message}`);
+    process.exit(1);
+  }
+}
+
 export async function mergeIntoDev() {
   const branch = (await execGit('git rev-parse --abbrev-ref HEAD')).trim();
   p.note(`Merging ${branch} → dev`, 'Auto-merge');
   const { owner, repo } = await getRepoInfo();
   p.note(`owner ${owner} repo ${repo}`, 'Auto-merge');
 
+  const prNumber = await createPRToDev(owner, repo, branch);
+
   try {
-    await execPromise(`gh api \
-      -X POST \
-      repos/${owner}/${repo}/merges \
-      -f base=dev \
-      -f head=${branch}`);
+    await execPromise(
+      `gh pr merge ${prNumber} \
+        --repo ${owner}/${repo} \
+        --merge`,
+    );
 
     p.note('Merged to dev successfully', 'Merge');
   } catch (err) {
@@ -164,8 +191,11 @@ export async function mergeIntoDev() {
   }
 }
 
-export async function createDevToStagingPR(owner, repo) {
+export async function createDevToStagingPR() {
   p.note('Creating PR from dev → staging', 'PR');
+
+  const { owner, repo } = await getRepoInfo();
+  p.note(`owner ${owner} repo ${repo}`, 'Auto-merge');
 
   try {
     const output = await execPromise(
