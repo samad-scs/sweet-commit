@@ -169,36 +169,38 @@ export async function main() {
   if (flags.toStag) {
     const prUrl = await createDevToStagingPR();
 
-    // --- UPDATED: Smart Slack Handover ---
+    // --- UPDATED: Robust Slack Handover ---
     if (prUrl) {
       try {
         // 1. Copy URL to clipboard
         await clipboardy.write(prUrl);
         p.note('PR URL copied to clipboard!', 'Clipboard');
 
-        // 2. Construct Deep Link
         const teamId = process.env.SLACK_TEAM_ID;
         const channelId = process.env.SLACK_CHANNEL_ID;
 
-        let slackDeepLink = 'slack://open'; // Default: just open app
+        // 2. Construct the URL
+        // We use the HTTP redirect because it is more reliable than the slack:// protocol
+        // across different OSs (Windows/Mac/Linux).
+        let openUrl = 'slack://open';
         let linkText = 'Opening Slack...';
 
-        // Use specific channel link if IDs are available
-        if (teamId && channelId) {
-          slackDeepLink = `slack://channel?team=${teamId}&id=${channelId}`;
-          linkText = 'Opening Slack Channel...';
-        } else if (channelId) {
-          // Fallback: Try opening channel without team ID (Less reliable)
-          slackDeepLink = `slack://channel?id=${channelId}`;
+        if (channelId) {
+          // This URL is the official way to deep link into a channel
+          openUrl = `https://slack.com/app_redirect?channel=${channelId}`;
+
+          // If Team ID is present, it makes it faster/more accurate
+          if (teamId) openUrl += `&team=${teamId}`;
+
           linkText = 'Opening Slack Channel...';
         }
 
         // 3. Print Clickable Link (ANSI)
-        const clickableMessage = `\u001b]8;;${slackDeepLink}\u001b\\${linkText} (Click to Open)\u001b]8;;\u001b\\`;
+        const clickableMessage = `\u001b]8;;${openUrl}\u001b\\${linkText} (Click to Open)\u001b]8;;\u001b\\`;
         p.note(clickableMessage, 'Handover');
 
         // 4. Trigger Open
-        await open(slackDeepLink);
+        await open(openUrl);
       } catch (error) {
         p.note(`Could not automate Slack/Clipboard: ${error.message}`, 'Manual fallback');
       }
