@@ -169,21 +169,35 @@ export async function main() {
   if (flags.toStag) {
     const prUrl = await createDevToStagingPR();
 
-    // --- UPDATED: Slack Handover Logic ---
+    // --- UPDATED: Smart Slack Handover ---
     if (prUrl) {
       try {
         // 1. Copy URL to clipboard
         await clipboardy.write(prUrl);
         p.note('PR URL copied to clipboard!', 'Clipboard');
 
-        // 2. Prepare Clickable Link (ANSI Escape Codes)
-        // \u001b]8;;URL\u001b\\TEXT\u001b]8;;\u001b\\
-        const slackDeepLink = 'slack://open';
-        const clickableMessage = `\u001b]8;;${slackDeepLink}\u001b\\Opening Slack... (Click to Open)\u001b]8;;\u001b\\`;
+        // 2. Construct Deep Link
+        const teamId = process.env.SLACK_TEAM_ID;
+        const channelId = process.env.SLACK_CHANNEL_ID;
 
+        let slackDeepLink = 'slack://open'; // Default: just open app
+        let linkText = 'Opening Slack...';
+
+        // Use specific channel link if IDs are available
+        if (teamId && channelId) {
+          slackDeepLink = `slack://channel?team=${teamId}&id=${channelId}`;
+          linkText = 'Opening Slack Channel...';
+        } else if (channelId) {
+          // Fallback: Try opening channel without team ID (Less reliable)
+          slackDeepLink = `slack://channel?id=${channelId}`;
+          linkText = 'Opening Slack Channel...';
+        }
+
+        // 3. Print Clickable Link (ANSI)
+        const clickableMessage = `\u001b]8;;${slackDeepLink}\u001b\\${linkText} (Click to Open)\u001b]8;;\u001b\\`;
         p.note(clickableMessage, 'Handover');
 
-        // 3. Attempt to open automatically
+        // 4. Trigger Open
         await open(slackDeepLink);
       } catch (error) {
         p.note(`Could not automate Slack/Clipboard: ${error.message}`, 'Manual fallback');
