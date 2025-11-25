@@ -1,3 +1,5 @@
+// git.js
+
 import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
@@ -25,6 +27,7 @@ export async function execGit(command, options = {}) {
   }
 }
 
+// UPDATED: Returns boolean, does not exit process
 export async function checkStagedChanges() {
   try {
     const stdout = await execGit('git status --porcelain');
@@ -38,13 +41,51 @@ export async function checkStagedChanges() {
           line.startsWith('R '),
       );
 
-    if (!hasStagedChanges) {
-      p.cancel('No staged changes found. Stage your changes first with: git add .');
-      process.exit(1);
-    }
+    return hasStagedChanges;
   } catch (error) {
     p.cancel(`Unable to check git status: ${error.message}`);
     process.exit(1);
+  }
+}
+
+// NEW: Syncs local branch with dev, exits on conflict
+export async function syncLocalWithDev() {
+  p.note('Syncing with remote dev branch...', 'Safety Check');
+  try {
+    // Fetch latest dev
+    await execGit('git fetch origin dev');
+
+    // Attempt merge
+    await execGit('git merge origin/dev');
+    p.note('Local branch is up to date with dev.', 'Sync');
+  } catch (error) {
+    // Check for merge conflicts
+    if (error.message.includes('CONFLICT') || error.stdout?.includes('CONFLICT')) {
+      p.cancel(
+        '🛑 Merge Conflicts Detected!\n' +
+          'Automatic merge with dev failed. Please resolve conflicts manually, commit them, and run the command again.',
+      );
+      process.exit(1);
+    } else {
+      p.cancel(`Failed to sync with dev: ${error.message}`);
+      process.exit(1);
+    }
+  }
+}
+
+// NEW: Extracted push logic for reuse
+export async function pushCurrentBranch() {
+  p.note('Pushing to remote...', 'Auto-push');
+  try {
+    await execGit('git push');
+  } catch (pushErr) {
+    try {
+      const branch = (await execGit('git rev-parse --abbrev-ref HEAD')).trim();
+      await execGit(`git push --set-upstream origin ${branch}`);
+    } catch {
+      p.cancel(`Push failed: ${pushErr.message}`);
+      process.exit(1);
+    }
   }
 }
 
@@ -127,10 +168,6 @@ export async function commitChanges(message) {
 
 async function getRepoInfo() {
   const repoUrl = (await execGit('git config --get remote.origin.url')).trim();
-
-  // Supports:
-  // git@github.com:owner/repo.git
-  // https://github.com/owner/repo.git
   const regex = /[:/]([^/]+)\/(.+)\.git$/;
   const match = repoUrl.match(regex);
 
@@ -146,6 +183,16 @@ async function getRepoInfo() {
 
 async function createPRToDev(owner, repo, branch) {
   try {
+    // Check if PR already exists to avoid error
+    try {
+      await execPromise(`gh pr view ${branch} --json url`);
+      // If it doesn't throw, PR exists. We can just return null or handle it.
+      // However, for simplicity, we'll try to create and catch the "already exists" error if GH CLI throws one,
+      // or strictly create.
+    } catch {
+      // PR likely doesn't exist, proceed to create
+    }
+
     const output = await execPromise(
       `gh pr create \
         --repo ${owner}/${repo} \
@@ -155,8 +202,6 @@ async function createPRToDev(owner, repo, branch) {
         --body "Automated merge by sweet-commit"`,
     );
 
-    // gh prints PR URL like:
-    // https://github.com/owner/repo/pull/123
     const match = output.stdout.trim().match(/pull\/(\d+)/);
     const prNumber = match ? match[1] : null;
 
@@ -164,6 +209,12 @@ async function createPRToDev(owner, repo, branch) {
 
     return prNumber;
   } catch (err) {
+    // If PR already exists, we might want to find it and merge it
+    if (err.message.includes('already exists')) {
+      p.note('PR already exists, finding ID...', 'GitHub');
+      const view = await execPromise(`gh pr view ${branch} --json number --repo ${owner}/${repo}`);
+      return JSON.parse(view.stdout).number;
+    }
     p.cancel(`Failed to create PR: ${err.message}`);
     process.exit(1);
   }
@@ -173,7 +224,6 @@ export async function mergeIntoDev() {
   const branch = (await execGit('git rev-parse --abbrev-ref HEAD')).trim();
   p.note(`Merging ${branch} → dev`, 'Auto-merge');
   const { owner, repo } = await getRepoInfo();
-  p.note(`owner ${owner} repo ${repo}`, 'Auto-merge');
 
   const prNumber = await createPRToDev(owner, repo, branch);
 
@@ -195,9 +245,9 @@ export async function createDevToStagingPR() {
   p.note('Creating PR from dev → staging', 'PR');
 
   const { owner, repo } = await getRepoInfo();
-  p.note(`owner ${owner} repo ${repo}`, 'Auto-merge');
 
   try {
+    // Same "already exists" check logic applies here, but usually dev->staging is unique per deploy
     const output = await execPromise(
       `gh pr create \
         --title "Sync dev → staging" \
@@ -209,8 +259,6 @@ export async function createDevToStagingPR() {
     );
 
     const text = output.stdout.trim();
-
-    // Extract URL
     const urlMatch = text.match(/https:\/\/github\.com\/[^\s]+/);
     const prUrl = urlMatch ? urlMatch[0] : null;
 
@@ -222,6 +270,10 @@ export async function createDevToStagingPR() {
     p.note(`Pull Request Created:\n${prUrl}`, 'PR URL');
     return prUrl;
   } catch (err) {
+    if (err.message.includes('already exists')) {
+      p.note('PR from dev to staging already exists.', 'PR Exists');
+      return;
+    }
     p.cancel(`Failed to create PR: ${err.message}`);
     process.exit(1);
   }

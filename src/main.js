@@ -1,6 +1,8 @@
 import * as p from '@clack/prompts';
 import fs from 'fs/promises';
 import path from 'path';
+import open from 'open'; // <--- NEW IMPORT
+import clipboardy from 'clipboardy'; // <--- NEW IMPORT
 import { DIFF_CONFIG } from './config.js';
 import {
   checkStagedChanges,
@@ -10,10 +12,13 @@ import {
   getFileStats,
   getStagedDiff,
   mergeIntoDev,
+  syncLocalWithDev,
+  pushCurrentBranch,
 } from './git.js';
 import { generateCommitMessage } from './utils.js';
 
-// ** Parse Arguments
+// ... [Keep parseArgs and loadEnvFile functions exactly as they were] ...
+
 function parseArgs() {
   const args = process.argv.slice(2);
   const flags = {
@@ -95,99 +100,93 @@ export async function main() {
     }
   }
 
-  await checkStagedChanges();
+  // Check Changes (Returns boolean)
+  const hasChanges = await checkStagedChanges();
 
-  const fileStats = await getFileStats();
-
-  const changesetSize = fileStats.length;
-  let sizeDescription = 'small';
-  if (changesetSize > 50) sizeDescription = 'very large';
-  else if (changesetSize > 20) sizeDescription = 'large';
-  else if (changesetSize > 5) sizeDescription = 'medium';
-
-  p.note(
-    `Analyzing ${sizeDescription} changeset with ${changesetSize} file${
-      changesetSize === 1 ? '' : 's'
-    }...\n` +
-      `${fileStats.filter((f) => f.status === 'A').length} added, ` +
-      `${fileStats.filter((f) => f.status === 'M').length} modified, ` +
-      `${fileStats.filter((f) => f.status === 'D').length} deleted`,
-    'Changeset Overview',
-  );
-
-  const diff = await getStagedDiff();
-
-  const needsOptimization =
-    diff.length > DIFF_CONFIG.maxTokens || diff.startsWith('LARGE_CHANGESET_SUMMARY');
-  if (needsOptimization) {
-    const sizeMB = Math.round((diff.length / 1024 / 1024) * 100) / 100;
-
-    if (diff.startsWith('LARGE_CHANGESET_SUMMARY')) {
+  // Handle "No Changes" Scenario
+  if (!hasChanges) {
+    if (flags.toDev || flags.toStag) {
       p.note(
-        `Extremely large changeset detected!\n` +
-          `Using statistical analysis instead of full diff.\n` +
-          `This ensures reliable commit message generation.`,
-        'Smart Analysis',
+        'No staged changes found, but merge flags detected. Skipping commit, proceeding to merge.',
+        'Workflow',
       );
     } else {
-      p.note(
-        `Large changeset detected (${sizeMB}MB)\n` +
-          `Using intelligent summarization to optimize for AI analysis.\n` +
-          `Key changes and patterns will be preserved.`,
-        'Optimization Active',
-      );
+      p.cancel('No staged changes found. Stage your changes first with: git add .');
+      process.exit(0);
     }
   }
 
-  const message = await generateCommitMessage(apiKey, diff);
+  // AI Commit Logic (Only if we have changes)
+  if (hasChanges) {
+    const fileStats = await getFileStats();
 
-  p.note(message, 'Generated commit message');
+    const changesetSize = fileStats.length;
+    let sizeDescription = 'small';
+    if (changesetSize > 50) sizeDescription = 'very large';
+    else if (changesetSize > 20) sizeDescription = 'large';
+    else if (changesetSize > 5) sizeDescription = 'medium';
 
-  let shouldCommit = true;
-  if (!flags.yes) {
-    try {
-      shouldCommit = await p.confirm({
-        message: 'Commit with this message?',
-        initialValue: true,
-      });
-    } catch {
-      p.cancel('Operation cancelled.');
-      process.exit(130);
-    }
-  }
+    p.note(
+      `Analyzing ${sizeDescription} changeset with ${changesetSize} file${
+        changesetSize === 1 ? '' : 's'
+      }...`,
+      'Changeset Overview',
+    );
 
-  if (shouldCommit === true) {
-    await commitChanges(message);
+    const diff = await getStagedDiff();
+    const message = await generateCommitMessage(apiKey, diff);
 
-    // If user requested add-and-push, push now
-    if (flags.addAndPush) {
-      p.note('Pushing to remote...', 'Auto-push');
+    p.note(message, 'Generated commit message');
+
+    let shouldCommit = true;
+    if (!flags.yes) {
       try {
-        // try a simple push first
-        await execGit('git push');
-      } catch (pushErr) {
-        // if push failed due to no upstream, try setting upstream
-        try {
-          const branch = (await execGit('git rev-parse --abbrev-ref HEAD')).trim();
-          await execGit(`git push --set-upstream origin ${branch}`);
-        } catch {
-          p.cancel(`Push failed: ${pushErr.message}`);
-          process.exit(1);
-        }
+        shouldCommit = await p.confirm({
+          message: 'Commit with this message?',
+          initialValue: true,
+        });
+      } catch {
+        p.cancel('Operation cancelled.');
+        process.exit(130);
       }
     }
 
-    if (flags.toDev || flags.toStag) {
-      await mergeIntoDev();
+    if (shouldCommit === true) {
+      await commitChanges(message);
+    } else {
+      p.cancel('Commit cancelled.');
+      process.exit(0);
     }
-
-    if (flags.toStag) {
-      await createDevToStagingPR();
-    }
-
-    p.outro('Done!');
-  } else {
-    p.cancel('Commit cancelled.');
-    process.exit(0);
   }
+
+  // Sync & Merge Logic
+  if (flags.toDev || flags.toStag) {
+    await syncLocalWithDev();
+    await pushCurrentBranch();
+    await mergeIntoDev();
+  }
+
+  // Staging Logic with Slack Handover
+  if (flags.toStag) {
+    const prUrl = await createDevToStagingPR();
+
+    // --- NEW: Slack Handover Logic ---
+    if (prUrl) {
+      try {
+        // 1. Copy URL to clipboard
+        await clipboardy.write(prUrl);
+        p.note('PR URL copied to clipboard!', 'Clipboard');
+
+        // 2. Open Slack
+        // 'slack://open' attempts to bring the Slack desktop app to the foreground
+        p.note('Opening Slack...', 'Handover');
+        await open('slack://open');
+      } catch (error) {
+        p.note(`Could not automate Slack/Clipboard: ${error.message}`, 'Manual fallback');
+      }
+    }
+    // ---------------------------------
+  }
+
+  p.outro('Done!');
 }
