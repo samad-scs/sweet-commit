@@ -1,8 +1,8 @@
 import * as p from '@clack/prompts';
 import fs from 'fs/promises';
 import path from 'path';
-import open from 'open'; // <--- NEW IMPORT
-import clipboardy from 'clipboardy'; // <--- NEW IMPORT
+import open from 'open';
+import clipboardy from 'clipboardy';
 import { DIFF_CONFIG } from './config.js';
 import {
   checkStagedChanges,
@@ -17,8 +17,7 @@ import {
 } from './git.js';
 import { generateCommitMessage } from './utils.js';
 
-// ... [Keep parseArgs and loadEnvFile functions exactly as they were] ...
-
+// ** Parse Arguments
 function parseArgs() {
   const args = process.argv.slice(2);
   const flags = {
@@ -170,17 +169,22 @@ export async function main() {
   if (flags.toStag) {
     const prUrl = await createDevToStagingPR();
 
-    // --- NEW: Slack Handover Logic ---
+    // --- UPDATED: Slack Handover Logic ---
     if (prUrl) {
       try {
         // 1. Copy URL to clipboard
         await clipboardy.write(prUrl);
         p.note('PR URL copied to clipboard!', 'Clipboard');
 
-        // 2. Open Slack
-        // 'slack://open' attempts to bring the Slack desktop app to the foreground
-        p.note('Opening Slack...', 'Handover');
-        await open('slack://open');
+        // 2. Prepare Clickable Link (ANSI Escape Codes)
+        // \u001b]8;;URL\u001b\\TEXT\u001b]8;;\u001b\\
+        const slackDeepLink = 'slack://open';
+        const clickableMessage = `\u001b]8;;${slackDeepLink}\u001b\\Opening Slack... (Click to Open)\u001b]8;;\u001b\\`;
+
+        p.note(clickableMessage, 'Handover');
+
+        // 3. Attempt to open automatically
+        await open(slackDeepLink);
       } catch (error) {
         p.note(`Could not automate Slack/Clipboard: ${error.message}`, 'Manual fallback');
       }
