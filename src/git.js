@@ -1,5 +1,3 @@
-// git.js
-
 import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
@@ -27,7 +25,6 @@ export async function execGit(command, options = {}) {
   }
 }
 
-// UPDATED: Returns boolean, does not exit process
 export async function checkStagedChanges() {
   try {
     const stdout = await execGit('git status --porcelain');
@@ -48,18 +45,13 @@ export async function checkStagedChanges() {
   }
 }
 
-// NEW: Syncs local branch with dev, exits on conflict
 export async function syncLocalWithDev() {
   p.note('Syncing with remote dev branch...', 'Safety Check');
   try {
-    // Fetch latest dev
     await execGit('git fetch origin dev');
-
-    // Attempt merge
     await execGit('git merge origin/dev');
     p.note('Local branch is up to date with dev.', 'Sync');
   } catch (error) {
-    // Check for merge conflicts
     if (error.message.includes('CONFLICT') || error.stdout?.includes('CONFLICT')) {
       p.cancel(
         '🛑 Merge Conflicts Detected!\n' +
@@ -73,7 +65,6 @@ export async function syncLocalWithDev() {
   }
 }
 
-// NEW: Extracted push logic for reuse
 export async function pushCurrentBranch() {
   p.note('Pushing to remote...', 'Auto-push');
   try {
@@ -181,18 +172,9 @@ async function getRepoInfo() {
   return { owner, repo };
 }
 
+// UPDATED FUNCTION: Handles "No commits" error gracefully
 async function createPRToDev(owner, repo, branch) {
   try {
-    // Check if PR already exists to avoid error
-    try {
-      await execPromise(`gh pr view ${branch} --json url`);
-      // If it doesn't throw, PR exists. We can just return null or handle it.
-      // However, for simplicity, we'll try to create and catch the "already exists" error if GH CLI throws one,
-      // or strictly create.
-    } catch {
-      // PR likely doesn't exist, proceed to create
-    }
-
     const output = await execPromise(
       `gh pr create \
         --repo ${owner}/${repo} \
@@ -209,23 +191,41 @@ async function createPRToDev(owner, repo, branch) {
 
     return prNumber;
   } catch (err) {
-    // If PR already exists, we might want to find it and merge it
+    // 1. Check if PR already exists
     if (err.message.includes('already exists')) {
       p.note('PR already exists, finding ID...', 'GitHub');
       const view = await execPromise(`gh pr view ${branch} --json number --repo ${owner}/${repo}`);
       return JSON.parse(view.stdout).number;
     }
+
+    // 2. Check if there are no changes to merge (The Fix)
+    // GitHub CLI usually says "No commits between dev and branch"
+    if (
+      err.message.includes('No commits between') ||
+      err.stdout?.includes('No commits between') ||
+      err.stderr?.includes('No commits between')
+    ) {
+      return 'NO_CHANGES';
+    }
+
     p.cancel(`Failed to create PR: ${err.message}`);
     process.exit(1);
   }
 }
 
+// UPDATED FUNCTION: Skips merge if NO_CHANGES is returned
 export async function mergeIntoDev() {
   const branch = (await execGit('git rev-parse --abbrev-ref HEAD')).trim();
   p.note(`Merging ${branch} → dev`, 'Auto-merge');
   const { owner, repo } = await getRepoInfo();
 
   const prNumber = await createPRToDev(owner, repo, branch);
+
+  // New Check: If no changes, skip the merge step but return successfully
+  if (prNumber === 'NO_CHANGES') {
+    p.note('Branch is identical to dev. Skipping merge step.', 'Auto-merge');
+    return;
+  }
 
   try {
     await execPromise(
@@ -247,7 +247,6 @@ export async function createDevToStagingPR() {
   const { owner, repo } = await getRepoInfo();
 
   try {
-    // Same "already exists" check logic applies here, but usually dev->staging is unique per deploy
     const output = await execPromise(
       `gh pr create \
         --title "Sync dev → staging" \
@@ -272,7 +271,17 @@ export async function createDevToStagingPR() {
   } catch (err) {
     if (err.message.includes('already exists')) {
       p.note('PR from dev to staging already exists.', 'PR Exists');
-      return;
+      // Attempt to fetch the URL of the existing PR
+      try {
+        const view = await execPromise(
+          `gh pr view dev --base staging --json url --repo ${owner}/${repo}`,
+        );
+        const url = JSON.parse(view.stdout).url;
+        p.note(`Existing PR URL: ${url}`, 'PR URL');
+        return url;
+      } catch {
+        return null;
+      }
     }
     p.cancel(`Failed to create PR: ${err.message}`);
     process.exit(1);
