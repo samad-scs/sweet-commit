@@ -270,19 +270,22 @@ export async function createDevToStagingPR() {
     return prUrl;
   } catch (err) {
     if (err.message.includes('already exists')) {
-      p.note('PR from dev to staging already exists.', 'PR Exists');
-      // Attempt to fetch the URL of the existing PR
       try {
+        // Fetch existing PR URL
         const view = await execPromise(
           `gh pr view dev --base staging --json url --repo ${owner}/${repo}`,
         );
         const url = JSON.parse(view.stdout).url;
-        p.note(`Existing PR URL: ${url}`, 'PR URL');
+
+        // Print the message WITH the clickable URL
+        p.note(`PR from dev to staging already exists.\n${url}`, 'PR Exists');
         return url;
       } catch {
+        p.note('PR from dev to staging already exists.', 'PR Exists');
         return null;
       }
     }
+
     p.cancel(`Failed to create PR: ${err.message}`);
     process.exit(1);
   }
