@@ -5,6 +5,7 @@ import { promisify } from 'util';
 import { exec } from 'child_process';
 import * as p from '@clack/prompts';
 import { DIFF_CONFIG } from './config.js';
+import { generatePRDescription } from './utils.js';
 
 const execPromise = promisify(exec);
 
@@ -22,6 +23,15 @@ export async function execGit(command, options = {}) {
       );
     }
     throw error;
+  }
+}
+
+export async function getCommitsBetween(base, head) {
+  try {
+    const stdout = await execGit(`git log ${base}..${head} --pretty=format:"- %s"`);
+    return stdout.trim();
+  } catch {
+    return null;
   }
 }
 
@@ -175,13 +185,24 @@ async function getRepoInfo() {
 // UPDATED FUNCTION: Handles "No commits" error gracefully
 async function createPRToDev(owner, repo, branch) {
   try {
+    const commits = await getCommitsBetween('origin/dev', branch);
+    const apiKey = process.env.GEMINI_API_KEY;
+    let title = `Sync ${branch} → dev`;
+    let body = 'Automated merge by sweet-commit';
+
+    if (commits && apiKey) {
+      const prInfo = await generatePRDescription(apiKey, commits);
+      title = prInfo.title;
+      body = prInfo.body;
+    }
+
     const output = await execPromise(
       `gh pr create \
         --repo ${owner}/${repo} \
         --base dev \
         --head ${branch} \
-        --title "Sync ${branch} → dev" \
-        --body "Automated merge by sweet-commit"`,
+        --title "${title.replace(/"/g, '\\"')}" \
+        --body "${body.replace(/"/g, '\\"')}"`,
     );
 
     const match = output.stdout.trim().match(/pull\/(\d+)/);
@@ -247,10 +268,24 @@ export async function createDevToStagingPR() {
   const { owner, repo } = await getRepoInfo();
 
   try {
+    // Ensure we have the latest staging ref for comparison
+    await execGit('git fetch origin staging');
+
+    const commits = await getCommitsBetween('origin/staging', 'origin/dev');
+    const apiKey = process.env.GEMINI_API_KEY;
+    let title = 'Sync dev → staging';
+    let body = 'Automated merge by sweet-commit';
+
+    if (commits && apiKey) {
+      const prInfo = await generatePRDescription(apiKey, commits);
+      title = prInfo.title;
+      body = prInfo.body;
+    }
+
     const output = await execPromise(
       `gh pr create \
-        --title "Sync dev → staging" \
-        --body "Automated merge by sweet-commit" \
+        --title "${title.replace(/"/g, '\\"')}" \
+        --body "${body.replace(/"/g, '\\"')}" \
         --base staging \
         --head dev \
         --label 🤖JARVIS \

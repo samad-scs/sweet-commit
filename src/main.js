@@ -176,8 +176,7 @@ export async function main() {
         await clipboardy.write(prUrl);
         p.note('PR URL copied to clipboard!', 'Clipboard');
 
-        const teamId = process.env.SLACK_TEAM_ID;
-        const channelId = process.env.SLACK_CHANNEL_ID;
+        const channelURL = process.env.SLACK_CHANNEL_LINK;
 
         // 2. Construct the URL
         // We use the HTTP redirect because it is more reliable than the slack:// protocol
@@ -185,12 +184,9 @@ export async function main() {
         let openUrl = 'slack://open';
         let linkText = 'Opening Slack...';
 
-        if (channelId) {
+        if (channelURL) {
           // This URL is the official way to deep link into a channel
-          openUrl = `https://slack.com/app_redirect?channel=${channelId}`;
-
-          // If Team ID is present, it makes it faster/more accurate
-          if (teamId) openUrl += `&team=${teamId}`;
+          openUrl = channelURL;
 
           linkText = 'Opening Slack Channel...';
         }

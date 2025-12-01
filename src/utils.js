@@ -217,3 +217,46 @@ Return only the commit message, nothing else.`;
     process.exit(1);
   }
 }
+
+export async function generatePRDescription(apiKey, commits) {
+  const spinner = p.spinner();
+  spinner.start('Generating PR description...');
+
+  try {
+    const client = new GoogleGenAI({ apiKey });
+
+    const prompt = `Generate a Pull Request Title and Body based on these commits.
+
+Commits:
+${commits}
+
+Rules:
+1. Title: concise, imperative, max 70 chars. Format: "Type: Title" (e.g., "Feat: Add user login").
+2. Body: Markdown format.
+   - Brief summary of changes.
+   - Bullet points for key updates.
+   - Mention any breaking changes if likely.
+3. Output JSON format: { "title": "...", "body": "..." }
+4. Do not include markdown code blocks in the output, just the raw JSON string.`;
+
+    const result = await client.models.generateContent({
+      model: 'gemini-2.0-flash-001',
+      contents: prompt,
+    });
+
+    let text = result.text.trim();
+    // Clean up potential markdown code blocks if the model ignores the rule
+    text = text.replace(/^```json\s*/, '').replace(/\s*```$/, '');
+
+    const json = JSON.parse(text);
+
+    spinner.stop('PR description generated!');
+    return json;
+  } catch {
+    spinner.stop('Failed to generate PR description. Using defaults.');
+    return {
+      title: 'Automated Sync',
+      body: 'Automated merge by sweet-commit.\n\nCommits:\n' + commits,
+    };
+  }
+}
