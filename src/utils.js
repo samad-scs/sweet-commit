@@ -218,7 +218,7 @@ Return only the commit message, nothing else.`;
   }
 }
 
-export async function generatePRDescription(apiKey, commits) {
+export async function generatePRDescription(apiKey, commits, fallbackContext = null) {
   const spinner = p.spinner();
   spinner.start('Generating PR description...');
 
@@ -254,6 +254,14 @@ Rules:
     return json;
   } catch {
     spinner.stop('Failed to generate PR description. Using defaults.');
+
+    if (fallbackContext) {
+      return {
+        title: fallbackContext.title,
+        body: fallbackContext.body,
+      };
+    }
+
     return {
       title: 'Automated Sync',
       body: 'Automated merge by sweet-commit.\n\nCommits:\n' + commits,

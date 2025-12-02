@@ -28,8 +28,21 @@ export async function execGit(command, options = {}) {
 
 export async function getCommitsBetween(base, head) {
   try {
-    const stdout = await execGit(`git log ${base}..${head} --pretty=format:"- %s"`);
+    const stdout = await execGit(`git log ${base}..${head} --no-merges --pretty=format:"- %s"`);
     return stdout.trim();
+  } catch {
+    return null;
+  }
+}
+
+export async function getLastMergedPR(baseBranch) {
+  try {
+    const { owner, repo } = await getRepoInfo();
+    const output = await execPromise(
+      `gh pr list --repo ${owner}/${repo} --base ${baseBranch} --state merged --limit 1 --json title,body`,
+    );
+    const prs = JSON.parse(output.stdout);
+    return prs.length > 0 ? prs[0] : null;
   } catch {
     return null;
   }
@@ -272,12 +285,17 @@ export async function createDevToStagingPR() {
     await execGit('git fetch origin staging');
 
     const commits = await getCommitsBetween('origin/staging', 'origin/dev');
+    const lastPR = await getLastMergedPR('dev');
+
     const apiKey = process.env.GEMINI_API_KEY;
-    let title = 'Sync dev → staging';
-    let body = 'Automated merge by sweet-commit';
+
+    // Default to last PR info if available, otherwise generic
+    let title = lastPR ? lastPR.title : 'Sync dev → staging';
+    let body = lastPR ? lastPR.body : 'Automated merge by sweet-commit';
 
     if (commits && apiKey) {
-      const prInfo = await generatePRDescription(apiKey, commits);
+      // Pass lastPR as context/fallback
+      const prInfo = await generatePRDescription(apiKey, commits, lastPR);
       title = prInfo.title;
       body = prInfo.body;
     }
