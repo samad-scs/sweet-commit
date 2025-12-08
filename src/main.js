@@ -38,7 +38,7 @@ function parseArgs() {
 
 async function loadEnvFile() {
   try {
-    const envPath = path.join(process.cwd(), '.env');
+    const envPath = path.join(process.cwd(), '../.env');
     const envContent = await fs.readFile(envPath, 'utf8');
 
     envContent.split('\n').forEach((line) => {

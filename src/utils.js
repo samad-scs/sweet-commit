@@ -213,8 +213,9 @@ Return only the commit message, nothing else.`;
       userFriendlyMessage = `AI service error: ${error.message}`;
     }
 
-    p.cancel(userFriendlyMessage);
-    process.exit(1);
+    p.note(userFriendlyMessage, 'AI Generation Failed');
+    p.note('Using generic fallback message.', 'Fallback');
+    return 'chore: update';
   }
 }
 
