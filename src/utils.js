@@ -199,6 +199,7 @@ Return only the commit message, nothing else.`;
 
     let userFriendlyMessage = 'Unable to generate commit message';
 
+    console.log('error.message :', error.message);
     if (error.message.includes('API key')) {
       userFriendlyMessage = 'Invalid API key. Please check your GEMINI_API_KEY.';
     } else if (error.message.includes('quota') || error.message.includes('limit')) {
