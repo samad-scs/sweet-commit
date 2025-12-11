@@ -183,7 +183,7 @@ ${optimizedDiff}
 Return only the commit message, nothing else.`;
 
     const result = await client.models.generateContent({
-      model: 'gemini-2.0-flash-lite',
+      model: 'gemini-2.0-flash',
       contents: prompt,
     });
 
@@ -242,7 +242,7 @@ Rules:
 4. Do not include markdown code blocks in the output, just the raw JSON string.`;
 
     const result = await client.models.generateContent({
-      model: 'gemini-2.0-flash-lite',
+      model: 'gemini-2.0-flash',
       contents: prompt,
     });
 
