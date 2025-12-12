@@ -175,28 +175,6 @@ export async function main() {
         // 1. Copy URL to clipboard
         await clipboardy.write(prUrl);
         p.note('PR URL copied to clipboard!', 'Clipboard');
-
-        const channelURL = process.env.SLACK_CHANNEL_LINK;
-
-        // 2. Construct the URL
-        // We use the HTTP redirect because it is more reliable than the slack:// protocol
-        // across different OSs (Windows/Mac/Linux).
-        let openUrl = 'slack://open';
-        let linkText = 'Opening Slack...';
-
-        if (channelURL) {
-          // This URL is the official way to deep link into a channel
-          openUrl = channelURL;
-
-          linkText = 'Opening Slack Channel...';
-        }
-
-        // 3. Print Clickable Link (ANSI)
-        const clickableMessage = `\u001b]8;;${openUrl}\u001b\\${linkText} (Click to Open)\u001b]8;;\u001b\\`;
-        p.note(clickableMessage, 'Handover');
-
-        // 4. Trigger Open
-        await open(openUrl);
       } catch (error) {
         p.note(`Could not automate Slack/Clipboard: ${error.message}`, 'Manual fallback');
       }
