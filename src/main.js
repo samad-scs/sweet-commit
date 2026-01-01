@@ -1,19 +1,15 @@
 import * as p from '@clack/prompts';
 import fs from 'fs/promises';
 import path from 'path';
-import open from 'open';
-import clipboardy from 'clipboardy';
-import { DIFF_CONFIG } from './config.js';
 import {
   checkStagedChanges,
   commitChanges,
-  createDevToStagingPR,
   execGit,
   getFileStats,
   getStagedDiff,
   mergeIntoDev,
-  syncLocalWithDev,
   pushCurrentBranch,
+  syncLocalWithDev,
 } from './git.js';
 import { generateCommitMessage } from './utils.js';
 
@@ -167,18 +163,17 @@ export async function main() {
 
   // Staging Logic with Slack Handover
   if (flags.toStag) {
-    const prUrl = await createDevToStagingPR();
-
+    // const prUrl = await createDevToStagingPR();
     // --- UPDATED: Robust Slack Handover ---
-    if (prUrl) {
-      try {
-        // 1. Copy URL to clipboard
-        await clipboardy.write(prUrl);
-        p.note('PR URL copied to clipboard!', 'Clipboard');
-      } catch (error) {
-        p.note(`Could not automate Slack/Clipboard: ${error.message}`, 'Manual fallback');
-      }
-    }
+    // if (prUrl) {
+    //   try {
+    //     // 1. Copy URL to clipboard
+    //     await clipboardy.write(prUrl);
+    //     p.note('PR URL copied to clipboard!', 'Clipboard');
+    //   } catch (error) {
+    //     p.note(`Could not automate Slack/Clipboard: ${error.message}`, 'Manual fallback');
+    //   }
+    // }
     // ---------------------------------
   }
 
